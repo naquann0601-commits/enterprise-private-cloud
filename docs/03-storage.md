@@ -63,7 +63,7 @@ Chuẩn bị sẵn các bộ cài hệ điều hành để phục vụ cho các 
 * `pfSense-CE-*.iso` (Tường lửa - Dùng cho Phase 2)
 * `Windows_Server_2022.iso` (Active Directory - Dùng cho Phase 3)
 * `TrueNAS-SCALE-*.iso` (Enterprise Storage - Dùng cho Phase 4)
-* `Windows_11_Client.iso` (Máy khách - Dùng cho test policy)
+* `Windows_10_Client.iso` (Máy khách - Dùng cho test policy)
 
 ### Cách Upload vào Proxmox:
 1. Ở cột bên trái, chọn **`local (pve01)`**.
