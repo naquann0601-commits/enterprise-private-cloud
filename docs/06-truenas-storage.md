@@ -1,429 +1,407 @@
-# 06 · Enterprise Storage (TrueNAS SCALE)
+# 06 · Enterprise Storage (OpenMediaVault)
 
 ## Objective
 
-Triển khai **TrueNAS SCALE** làm hệ thống lưu trữ tập trung cho doanh nghiệp. 
-Điểm nhấn của bài này là tích hợp TrueNAS vào **Active Directory (AD-DC01)** để thực hiện phân quyền truy cập tập tin (SMB) theo đúng phòng ban (HR, IT, Sales) đã cấu hình trong Phase 3.
+Triển khai **OpenMediaVault (OMV)** làm hệ thống lưu trữ tập trung (File Server) hạng nhẹ cho doanh nghiệp thay thế cho TrueNAS. 
+Mục tiêu là tối ưu hóa tài nguyên phần cứng, tích hợp OMV vào **Active Directory (AD-DC01)** và thực hiện phân quyền truy cập tập tin (SMB) theo đúng phòng ban (HR, IT, Sales) đã cấu hình trong Phase 3.
 
 ---
 
 ## Environment & Network Strategy
 
-TrueNAS sẽ nằm trong vùng **Storage Zone (VLAN 30)**, tách biệt hoàn toàn với vùng máy chủ và vùng người dùng để đảm bảo an toàn dữ liệu.
+Máy chủ OMV sẽ nằm trong vùng **Storage Zone (VLAN 30)**, tách biệt hoàn toàn với vùng máy chủ và vùng người dùng.
 
 | Component | Value | Note |
 | :--- | :--- | :--- |
-| **VM Name** | `TrueNAS-SCALE` | Hệ điều hành lưu trữ chuyên dụng |
-| **Network** | Bridge `vmbr1`, **VLAN Tag: 30** | Thuộc vùng mạng STORAGE |
-| **Static IP** | `10.30.30.10/24` | Gateway: `10.30.30.1` (pfSense) |
-| **DNS Server** | `10.20.20.10` | Trỏ về AD-DC01 để xác thực tên miền |
+| **VM Name** | `OMV-Storage` | Hệ điều hành lưu trữ (dựa trên Debian) |
+| **Network** | Bridge `vmbr1`, **VLAN Tag: 30** | Thuộc vùng mạng STORAGE|
+| **Static IP** | `10.30.30.10/24` | Gateway: `10.30.30.1` (pfSense)|
+| **DNS Server** | `10.20.20.10` | Trỏ về AD-DC01 để xác thực tên miền|
 
 ---
 
-## Step 1 · Create TrueNAS VM on Proxmox
-
-# Bước 1: Khởi tạo máy ảo (VM) trên Proxmox
+## Step 1 · Create OMV VM on Proxmox
 
 Truy cập giao diện **Proxmox Web UI** và nhấn **Create VM**.
 
----
+### 1.1 Cấu hình máy ảo cơ bản
 
-## Tab General
+*   **General:** VM ID: `300`, Name: `OMV-Storage`.
+*   **OS:** Chọn kho lưu trữ `local`, chọn file ISO `openmediavault_*.iso`.
+*   **System:** Giữ mặc định (SeaBIOS/Q35).
+*   **CPU:** Cores: `2` (OMV hoạt động mượt mà chỉ với 1-2 Cores).
+*   **Memory:** `2048 MB` (Chỉ cần 2GB RAM là đủ, tối ưu hơn rất nhiều so với 8GB của TrueNAS)[cite: 6].
+*   **Network:** Bridge: `vmbr1`, Model: `VirtIO`, **VLAN Tag: 30**.
 
-| Thuộc tính | Giá trị         |
-| ---------- | --------------- |
-| VM ID      | `300`           |
-| Name       | `TrueNAS-SCALE` |
+### 1.2 Cấu hình Ổ cứng (Disks)
 
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/setup.png)
-
----
-
-## Tab OS
-
-| Thuộc tính    | Giá trị                                       |
-| ------------- | --------------------------------------------- |
-| ISO Image     | `TrueNAS-SCALE-*.iso` *(đã upload lên local)* |
-| Guest OS Type | `Linux`                                       |
-| Version       | `6.x - 2.6 Kernel`                            |
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/os.png)
----
-
-## Tab System
-
-Giữ nguyên toàn bộ thiết lập mặc định.
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/system.png)
----
-
-## Tab Disks
-
-| Thuộc tính | Giá trị                    |
-| ---------- | -------------------------- |
-| Bus/Device | `VirtIO Block` hoặc `SCSI` |
-| Storage    | `vm-data-pool`             |
-| Disk Size  | `32 GB`                    |
-
-> Đây là ổ đĩa dùng để cài đặt hệ điều hành **TrueNAS SCALE**.
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/disk.png)
----
-
-## Tab CPU
-
-| Thuộc tính | Giá trị     |
-| ---------- | ----------- |
-| Cores      | `2` |
-
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/cpu.png)
----
-
-## Tab Memory
-
-| Thuộc tính | Giá trị          |
-| ---------- | ---------------- |
-| Memory     | `8192 MB (8 GB)` |
-
-> **Lưu ý quan trọng:** TrueNAS sử dụng **ZFS**, bộ nhớ RAM ảnh hưởng trực tiếp tới hiệu năng cache, tốc độ đọc/ghi và khả năng vận hành ổn định.
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/memory.png)
+OMV yêu cầu tách biệt ổ OS và ổ Data. Bạn cần tạo 2 ổ cứng ảo:
+1.  **Ổ OS (Cài hệ điều hành):** Storage: `vm-data-pool`, Size: **`10 GB`**.
+2.  **Ổ Data (Chứa dữ liệu):** Sau khi hoàn thành tạo VM, vào tab **Hardware** của máy ảo -> **Add** -> **Hard Disk**. Chọn Storage `vm-data-pool`, Size: **`100 GB`**.
 
 ---
 
-## Tab Network
+## Step 2 · Install OpenMediaVault
 
-| Thuộc tính | Giá trị  |
-| ---------- | -------- |
-| Bridge     | `vmbr1`  |
-| Model      | `VirtIO` |
-| VLAN Tag   | `30`     |
-
-→ Nhấn **Next**
-
-![Uploads](../screenshots/06-truenas/network.png)
-
----
-
-## Finish
-
-Kiểm tra lại toàn bộ cấu hình và nhấn **Finish** để tạo máy ảo.
+1.  Nhấn **Start** máy ảo và mở màn hình **Console**.
+2.  Tại menu boot, chọn **Install** và nhấn Enter.
+3.  Thực hiện các bước thiết lập cơ bản:
+    *   **Ngôn ngữ/Khu vực:** English / Other -> Asia -> Vietnam.
+    *   **Hostname:** `omv`
+    *   **Domain name:** `enterprise.local`
+    *   **Root password:** Đặt mật khẩu quản trị hệ thống (VD: `P@ssw0rd123`).
+4.  Hệ thống sẽ tự động format phân vùng `10GB` và cài đặt hệ điều hành.
+5.  Khi có thông báo hoàn tất, chọn **Continue** để khởi động lại máy ảo. (Nhớ tháo file ISO ra khỏi tab Hardware).
 
 ---
 
-# Thêm ổ dữ liệu (Data Disk)
+## Step 3 · Cấu hình IP Tĩnh (Static IP)
 
-Sau khi VM được tạo:
+Khi OMV khởi động xong, màn hình Console màu đen sẽ hiện ra dòng chữ `omv login:`.
 
-1. Chọn VM **TrueNAS-SCALE**
-2. Chuyển sang tab **Hardware**
-3. Nhấn **Add → Hard Disk**
+1.  Đăng nhập bằng user `root` và mật khẩu bạn vừa đặt ở Bước 2.
+2.  Gõ lệnh sau để mở menu cấu hình mạng:
+    `omv-firstaid`
+3.  Dùng phím mũi tên chọn **1 Configure network interface**.
+4.  Chọn card mạng (VD: `ens18` hoặc `eth0`).
+5.  Hệ thống hỏi cấu hình IPv4/DHCP:
+    *   *Do you want to configure IPv4?* -> Chọn **Yes**.
+    *   *Do you want to use DHCP?* -> Chọn **No**.
+    *   *IP Address:* Nhập `10.30.30.10`.
+    *   *Netmask:* Nhập `255.255.255.0`.
+    *   *Gateway:* Nhập `10.30.30.1`.
+    *   *DNS Server:* Nhập `10.20.20.10` (Trỏ về máy ảo AD-DC01).
+    *   *IPv6:* Chọn **No**.
+6.  Chờ hệ thống lưu cấu hình. 
+
+---
+
+## Step 4 · Truy cập WebUI và Mount Ổ dữ liệu
+
+1.  Từ trình duyệt trên máy **AD-DC01** (VLAN 20), truy cập vào địa chỉ: `http://10.30.30.10`.
+2.  Đăng nhập với tài khoản mặc định của giao diện Web OMV:
+    *   Username: `admin`
+    *   Password: `openmediavault` (Hệ thống sẽ yêu cầu đổi mật khẩu sau khi đăng nhập).
+3.  **Khởi tạo ổ 100GB:**
+    *   Vào menu **Storage -> File Systems**.
+    *   Nhấn dấu **+ (Create)**, chọn ổ đĩa 100GB (`/dev/sdb`), định dạng là **EXT4**, nhấn Save.
+    *   Sau khi tạo xong, chọn ổ đĩa đó và nhấn nút **Play (Mount)** để gắn ổ đĩa vào hệ thống.
+    *   *Lưu ý: Luôn nhấn nút check màu vàng (Apply) ở góc trên cùng để lưu thay đổi.*
+
+---
+
+# Step 5 · Tích hợp Active Directory (Join Domain)
+
+Để **OpenMediaVault (OMV)** nhận diện người dùng và nhóm từ hệ thống **Windows Server Active Directory**, thực hiện cấu hình thủ công bằng dòng lệnh thay vì sử dụng Plugin Web như các phiên bản cũ.
+
+---
+
+## 5.1 Chuẩn bị môi trường mạng
+
+### Đồng bộ thời gian (Time Synchronization)
+
+Vào:
+
+```text
+System → Date & Time
+```
 
 Thiết lập:
 
-| Thuộc tính | Giá trị                                          |
-| ---------- | ------------------------------------------------ |
-| Size       | Ví dụ `100 GB`                                   |
-| Bus/Device | `SCSI` *(hoặc VirtIO Block để đồng bộ cấu hình)* |
+| Thuộc tính  | Giá trị       |
+| ----------- | ------------- |
+| Time Server | `10.20.20.10` |
 
-→ Nhấn **Add**
-
-> Đây sẽ là ổ lưu trữ dữ liệu độc lập với ổ cài hệ điều hành.
-
-
+> Đây là địa chỉ IP của máy **AD-DC01**.
+> Chênh lệch thời gian giữa Domain Controller và OMV có thể khiến quá trình Join Domain thất bại.
 
 ---
 
-# Bước 2: Cài đặt TrueNAS SCALE
+### Cấu hình DNS Domain
 
-## Khởi động máy ảo
-
-* Nhấn **Start**
-* Mở **Console**
-
-![Uploads](../screenshots/06-truenas/start.png)
----
-
-## Trình cài đặt
-
-Khi menu xuất hiện:
-
-→ Chọn **Install/Upgrade**
-
-![Uploads](../screenshots/06-truenas/install.png)
-
----
-
-## Chọn ổ cài đặt
-
-Danh sách ổ đĩa sẽ xuất hiện.
-
-* Chọn ổ **32GB** *(thường là ổ đầu tiên)*
-* Nhấn **Space** để đánh dấu
-* Nhấn **Enter** để tiếp tục
-
-![Uploads](../screenshots/06-truenas/select_disk.png)
-
----
-
-## Xác nhận xóa dữ liệu
-
-Trình cài đặt sẽ cảnh báo xóa toàn bộ dữ liệu trên ổ OS.
-
-→ Chọn **Yes**
-
----
-
-## Thiết lập mật khẩu Root
-
-Nhập mật khẩu cho tài khoản:
+Vào:
 
 ```text
-truenas_admin
+Network → Interfaces
 ```
-![Uploads](../screenshots/06-truenas/pass.png)
+
+Chỉnh sửa card mạng và đảm bảo:
+
+| Thuộc tính | Giá trị       |
+| ---------- | ------------- |
+| DNS Server | `10.20.20.10` |
+
+> DNS phải trỏ về Domain Controller để OMV phân giải được tên miền nội bộ.
 
 ---
 
-## Cấu hình Boot
+## 5.2 Join Domain bằng dòng lệnh (Console)
 
-Chọn:
+Mở **Console** hoặc **SSH** vào máy ảo OMV bằng quyền:
+
+```bash
+root
+```
+
+### Cài đặt các gói cần thiết
+
+```bash
+apt-get install -y winbind libpam-winbind libnss-winbind
+```
+
+Các gói này cho phép Linux giao tiếp với **Windows Active Directory**.
+
+---
+
+### Chỉnh sửa cấu hình Samba
+
+Mở file:
+
+```bash
+nano /etc/samba/smb.conf
+```
+
+Tìm tới phần:
+
+```ini
+[global]
+```
+
+Bổ sung các dòng cấu hình sau ngay bên dưới:
+
+```ini
+server role = member server
+security = ads
+realm = ENTERPRISE.LOCAL
+workgroup = ENTERPRISE
+```
+
+Lưu file:
 
 ```text
-Boot via UEFI
+Ctrl + O → Enter → Ctrl + X
 ```
 
-> Khuyến nghị sử dụng UEFI cho môi trường ảo hóa hiện đại.
-
 ---
 
-## Hoàn tất cài đặt
+### Thực hiện Join Domain
 
-Sau khi cài đặt xong:
+Chạy lệnh:
 
-1. Chọn **Reboot**
-2. Quay lại **Proxmox**
-3. Mở **Hardware**
-4. Tháo file **ISO** khỏi máy ảo
+```bash
+net ads join -U Administrator
+```
 
-> Tránh việc máy khởi động lại vào trình cài đặt.
+Hệ thống sẽ yêu cầu nhập mật khẩu của tài khoản **Administrator** trên Windows Server.
 
-![Uploads](../screenshots/06-truenas/reboot.png)
-
----
-
-# Bước 3: Cấu hình mạng (Cố định IP)
-
-Sau khi TrueNAS khởi động, màn hình Console sẽ hiển thị menu cấu hình.
-
----
-
-## Cấu hình Interface
-
-Chọn:
+Nếu xuất hiện thông báo:
 
 ```text
-1) Configure Network Interfaces
+Joined 'OMV' to dns domain 'enterprise.local'
 ```
-![Uploads](../screenshots/06-truenas/menu.png)
 
-Chọn interface:
+→ Quá trình tích hợp Domain đã thành công.
+
+---
+
+# Step 6 · Tạo Shared Folders và phân quyền SMB
+
+## 6.1 Tạo Shared Folders cơ bản trên OMV
+
+Vào:
 
 ```text
-ens18
+Storage → Shared Folders → +
 ```
-![Uploads](../screenshots/06-truenas/interface.png)
 
-Nếu đang nhận IP từ DHCP:
+Tạo lần lượt các thư mục:
 
-→ Chọn **Delete interface configuration**
+* `HR_Data`
+* `IT_Data`
+* `Sales_Data`
+
+Lưu trên ổ dữ liệu **60GB (EXT4)** đã mount.
 
 ---
 
-## Thiết lập IP tĩnh
+### Thiết lập quyền thư mục gốc
 
-| Thuộc tính                   | Giá trị       |
-| ---------------------------- | ------------- |
-| Configure interface for DHCP | `No`          |
-| Configure IPv4               | `Yes`         |
-| Interface Name               | `enp0s18`     |
-| IP Address                   | `10.30.30.10` |
-| Netmask                      | `24`          |
+Trong mục **Permissions**:
+
+| Đối tượng     | Quyền        |
+| ------------- | ------------ |
+| Administrator | Read / Write |
+| Users         | Read / Write |
+| Others        | No Access    |
+
+→ Nhấn **Save** → **Apply**
+
+> Bỏ qua hoàn toàn tab **Privileges** trên giao diện Web.
 
 ---
 
-## Thiết lập Gateway & DNS cho TrueNAS
+## 6.2 Kích hoạt dịch vụ SMB/CIFS
 
-``` text
-Chọn 2 - Configure Network Settings
+Vào:
+
+```text
+Services → SMB/CIFS → Settings
 ```
-
-### Cấu hình IPv4 Default Gateway
-
 
 Thiết lập:
 
-| Thuộc tính           | Giá trị      |
-| -------------------- | ------------ |
-| IPv4 Default Gateway | `10.30.30.1` |
+| Thuộc tính | Giá trị      |
+| ---------- | ------------ |
+| Enable     | ✓            |
+| Workgroup  | `ENTERPRISE` |
 
-> Đây là địa chỉ **Gateway của pfSense thuộc VLAN 30**, cho phép máy chủ **TrueNAS** giao tiếp với các mạng khác ngoài subnet hiện tại.
-
-
-
+→ Nhấn **Save**
 
 ---
 
-## Cấu hình DNS Server
+### Publish Shared Folder
 
-Tiếp tục trong phần cấu hình mạng, hệ thống sẽ yêu cầu nhập thông tin **Nameserver (DNS)**.
-
-Thiết lập:
-
-| Thuộc tính   | Giá trị       |
-| ------------ | ------------- |
-| Nameserver 1 | `10.20.20.10` |
-
-> **Lý do:** Đây là máy chủ DNS nội bộ (**AD-DC01**).
-> Bước này bắt buộc để TrueNAS có thể phân giải tên miền nội bộ như:
+Chuyển sang tab:
 
 ```text
-enterprise.local
+Shares → +
 ```
 
-Nếu không cấu hình DNS nội bộ, TrueNAS sẽ không thể:
+Lần lượt publish:
 
-* Phân giải tên miền `enterprise.local`
-* Join Domain Active Directory
-* Giao tiếp với các dịch vụ nội bộ sử dụng tên miền thay vì địa chỉ IP
+* `HR_Data`
+* `IT_Data`
+* `Sales_Data`
 
-![Uploads](../screenshots/06-truenas/gateway_dns.png)
+→ Nhấn **Save** → **Apply**
 
 ---
 
-# Bước 4: Truy cập WebUI và hoàn tất
+### Khởi động lại dịch vụ (Khuyến nghị)
 
-Từ trình duyệt trên máy **AD-DC01** hoặc máy khác trong mạng:
+Mở Console và chạy:
+
+```bash
+systemctl restart smbd nmbd winbind
+```
+
+Dịch vụ sẽ nạp cấu hình mới nhất.
+
+---
+
+## 6.3 Ép quyền Active Directory từ Windows Server
+
+Trên máy **AD-DC01**:
+
+1. Nhấn **Win + R**
+2. Nhập:
 
 ```text
-http://10.30.30.10
+\\10.30.30.10
 ```
 
----
-
-## Đăng nhập
-
-| Thuộc tính | Giá trị                        |
-| ---------- | ------------------------------ |
-| Username   | `root`                         |
-| Password   | Mật khẩu đã tạo ở bước cài đặt |
-
----
-
-## Kiểm tra ổ dữ liệu
-
-Đi tới:
+Đăng nhập bằng:
 
 ```text
-Storage → Disks
+Administrator@enterprise.local
 ```
 
-Xác nhận ổ dữ liệu **100GB** đã xuất hiện.
+(nếu được yêu cầu)
 
 ---
 
-## Tạo ZFS Pool
+### Gán quyền cho thư mục HR
 
-Đi tới:
+* Chuột phải **HR_Data**
+* Chọn **Properties**
+* Mở tab **Security**
+* Chọn **Edit → Add**
+* Nhập:
 
 ```text
-Storage → Pools → Add → Create Pool
+HR_Group
 ```
 
-Thiết lập ví dụ:
+* Nhấn **Check Names**
+* Tick quyền:
 
-| Thuộc tính | Giá trị        |
-| ---------- | -------------- |
-| Pool Name  | `STORAGE_POOL` |
-| Disk       | Chọn ổ dữ liệu |
+```text
+Modify (Read / Write)
+```
 
-→ Xác nhận tạo Pool.
-
-Sau khi hoàn tất, hệ thống **TrueNAS SCALE** đã sẵn sàng để tạo SMB Share, NFS, iSCSI hoặc làm NAS nội bộ cho môi trường Lab.
-
+→ Nhấn **OK**
 
 ---
 
-## Step 2 · Install & Initial Configuration
+### Lặp lại cho các phòng ban khác
 
-1. Boot VM và thực hiện cài đặt theo hướng dẫn của trình cài đặt TrueNAS.
-2. Sau khi cài xong, truy cập vào giao diện Web qua IP mặc định (chuyển sang Static IP `10.30.30.10` qua menu Console).
-3. Truy cập WebUI: `http://10.30.30.10`.
-
----
-
-## Step 3 · Integrate with Active Directory
-
-Đây là bước quan trọng để TrueNAS nhận diện được các Users và Groups từ máy chủ AD-DC01.
-
-1. **Cấu hình DNS:** Vào **Network > Global Configuration**, đảm bảo DNS trỏ về `10.20.20.10` (IP của AD-DC01).
-2. **Join Domain:**
-   * Vào **Directory Services > Active Directory**.
-   * **Domain Name:** `enterprise.local`.
-   * **Domain Account Name / Password:** Nhập tài khoản Administrator của domain.
-   * Nhấn **Save** và **Join Domain**.
-3. Xác nhận đã Join thành công bằng cách kiểm tra lệnh `wbinfo -u` trong Shell (phải thấy danh sách user như `hr_user1`).
+| Thư mục    | Nhóm AD       |
+| ---------- | ------------- |
+| IT_Data    | `IT_Group`    |
+| Sales_Data | `Sales_Group` |
 
 ---
 
-## Step 4 · Create Datasets & SMB Share
+# Step 7 · Verification & Mapping
 
-Phân quyền dữ liệu theo cấu trúc OU đã tạo ở Phase 3.
+Trên máy **Client** *(hoặc mở File Explorer mới)*:
 
-### 4.1 Tạo Pool & Datasets
-1. Vào **Storage**, tạo một **Pool** mới từ ổ cứng dữ liệu.
-2. Tạo các **Datasets** bên trong Pool theo cấu trúc phòng ban:
-   * `DATA/HR`
-   * `DATA/IT`
-   * `DATA/Sales`
+Truy cập:
 
-### 4.2 Thiết lập SMB Share
-1. Vào **Shares > Windows Shares (SMB)**.
-2. Nhấn **Add**, chọn Dataset `DATA/HR`.
-3. Thiết lập **ACL (Access Control List)**:
-   * Xóa các quyền mặc định.
-   * Thêm quyền cho **Group**: `HR_Group` (Full Control).
-   * Thêm quyền cho **Group**: `Domain Admins` (Full Control).
-4. Thực hiện tương tự cho các dataset IT và Sales với các Group tương ứng (`IT_Group`, `Sales_Group`).
+```text
+\\10.30.30.10
+```
+
+Hệ thống sẽ yêu cầu xác thực.
+
+Đăng nhập bằng:
+
+| Thuộc tính | Giá trị                     |
+| ---------- | --------------------------- |
+| Username   | `hr_user1@enterprise.local` |
+| Password   | Mật khẩu của user           |
 
 ---
 
-## Step 5 · Verification & Mapping
+## Kiểm thử quyền truy cập (Test Access)
 
-1. Trên máy Windows 11 Client (VLAN 10), đăng nhập bằng tài khoản `hr_user1`.
-2. Mở File Explorer, gõ địa chỉ: `\\10.30.30.10`.
-3. Kiểm tra:
-   * User `hr_user1` có thể đọc/ghi trong thư mục `HR`.
-   * User `hr_user1` **không thể** truy cập vào thư mục `IT` hoặc `Sales`.
+### Kiểm thử thư mục HR_Data
+
+Thực hiện:
+
+* Tạo file `.txt`
+* Hoặc copy một file bất kỳ
+
+Kết quả mong đợi:
+
+✅ Cho phép ghi dữ liệu
+✅ Lưu thành công
+
+---
+
+### Kiểm thử thư mục IT_Data hoặc Sales_Data
+
+Thử mở hoặc ghi dữ liệu.
+
+Kết quả mong đợi:
+
+❌ Hiển thị thông báo:
+
+```text
+Access Denied
+```
+
+Do tài khoản đang đăng nhập không thuộc nhóm phòng ban tương ứng.
+
+---
+
+Sau khi hoàn tất bước kiểm thử, hệ thống NAS đã tích hợp thành công với **Active Directory**, hỗ trợ xác thực tập trung và phân quyền theo phòng ban.
 
 ---
 
 ## Result Check-list
 
-* [x] TrueNAS đã được Join Domain thành công vào `enterprise.local`.
-* [x] Đã thiết lập Dataset phân cấp theo phòng ban (HR, IT, Sales).
+* [x] OpenMediaVault đã được cài đặt và vận hành nhẹ nhàng, tối ưu tài nguyên ảo hóa.
+* [x] Tích hợp thành công vào Domain `enterprise.local`.
+* [x] Đã thiết lập Shared Folders phân cấp theo phòng ban (HR, IT, Sales).
 * [x] Phân quyền SMB sử dụng Security Groups của Active Directory đã hoạt động.
-* [x] Mạng lưu trữ (VLAN 30) đã thông suốt với mạng người dùng (VLAN 10) nhờ pfSense Inter-VLAN Routing.
