@@ -391,7 +391,7 @@ Thử mở hoặc ghi dữ liệu.
 
 Kết quả mong đợi:
 
-❌ Hiển thị thông báo:
+Hiển thị thông báo:
 
 ```text
 Access Denied
