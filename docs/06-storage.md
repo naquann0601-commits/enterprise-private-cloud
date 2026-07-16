@@ -29,15 +29,15 @@ Truy cập giao diện **Proxmox Web UI** và nhấn **Create VM**.
 *   **General:** VM ID: `300`, Name: `OMV-Storage`.
 *   **OS:** Chọn kho lưu trữ `local`, chọn file ISO `openmediavault_*.iso`.
 *   **System:** Giữ mặc định (SeaBIOS/Q35).
-*   **CPU:** Cores: `2` (OMV hoạt động mượt mà chỉ với 1-2 Cores).
-*   **Memory:** `2048 MB` (Chỉ cần 2GB RAM là đủ, tối ưu hơn rất nhiều so với 8GB của TrueNAS)[cite: 6].
+*   **CPU:** Cores: `2`.
+*   **Memory:** `2048 MB`.
 *   **Network:** Bridge: `vmbr1`, Model: `VirtIO`, **VLAN Tag: 30**.
 
 ### 1.2 Cấu hình Ổ cứng (Disks)
 
 OMV yêu cầu tách biệt ổ OS và ổ Data. Bạn cần tạo 2 ổ cứng ảo:
 1.  **Ổ OS (Cài hệ điều hành):** Storage: `vm-data-pool`, Size: **`10 GB`**.
-2.  **Ổ Data (Chứa dữ liệu):** Sau khi hoàn thành tạo VM, vào tab **Hardware** của máy ảo -> **Add** -> **Hard Disk**. Chọn Storage `vm-data-pool`, Size: **`100 GB`**.
+2.  **Ổ Data (Chứa dữ liệu):** Sau khi hoàn thành tạo VM, vào tab **Hardware** của máy ảo -> **Add** -> **Hard Disk**. Chọn Storage `vm-data-pool`, Size: **`70 GB`**.
 
 ---
 
@@ -82,7 +82,7 @@ Khi OMV khởi động xong, màn hình Console màu đen sẽ hiện ra dòng c
 2.  Đăng nhập với tài khoản mặc định của giao diện Web OMV:
     *   Username: `admin`
     *   Password: `openmediavault` (Hệ thống sẽ yêu cầu đổi mật khẩu sau khi đăng nhập).
-3.  **Khởi tạo ổ 100GB:**
+3.  **Khởi tạo ổ 70GB:**
     *   Vào menu **Storage -> File Systems**.
     *   Nhấn dấu **+ (Create)**, chọn ổ đĩa 100GB (`/dev/sdb`), định dạng là **EXT4**, nhấn Save.
     *   Sau khi tạo xong, chọn ổ đĩa đó và nhấn nút **Play (Mount)** để gắn ổ đĩa vào hệ thống.
@@ -176,6 +176,8 @@ realm = ENTERPRISE.LOCAL
 workgroup = ENTERPRISE
 ```
 
+
+
 Lưu file:
 
 ```text
@@ -202,6 +204,8 @@ Joined 'OMV' to dns domain 'enterprise.local'
 
 → Quá trình tích hợp Domain đã thành công.
 
+![Uploads](../screenshots/06-storage/success.png)
+
 ---
 
 # Step 6 · Tạo Shared Folders và phân quyền SMB
@@ -220,7 +224,9 @@ Tạo lần lượt các thư mục:
 * `IT_Data`
 * `Sales_Data`
 
-Lưu trên ổ dữ liệu **60GB (EXT4)** đã mount.
+Lưu trên ổ dữ liệu **70GB (EXT4)** đã mount.
+
+![Uploads](../screenshots/06-storage/share-folder.png)
 
 ---
 
@@ -303,7 +309,7 @@ Trên máy **AD-DC01**:
 Đăng nhập bằng:
 
 ```text
-Administrator@enterprise.local
+ENTERPRISE\Administrator
 ```
 
 (nếu được yêu cầu)
